@@ -113,7 +113,20 @@ fn main() {
     let input = std::fs::read_to_string("00_orig.txt").unwrap();
     let ip_reg: u8 = input.lines().next().unwrap().trim_start_matches("#ip ").parse().unwrap();
     let insts: Vec<_> = input.lines().skip(1).map(|l| Instruction::from_str(l, ip_reg)).collect();
+    let insts = inline_ip(insts);
     for (idx, i) in insts.iter().enumerate() {
         println!("{:02}  {}", idx, i.print());
     }
+}
+
+fn inline_ip(insts: Vec<Instruction>) -> Vec<Instruction>{
+    insts.into_iter().enumerate().map(
+        |(idx, mut inst)| {
+            inst.opcode = match inst.opcode {
+                OpCode::Addi(Reg::Ip, i) => OpCode::Seti(Imm(i.0+idx)),
+                op => op
+            };
+            inst
+        }
+    ).collect()
 }
