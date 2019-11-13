@@ -1,0 +1,36 @@
+0   00  jmp        17
+3   01  seti  1  _ r3
+6   02  seti  1  _ r2
+5   03  mulr r3 r2 r5
+    04  j_eq r5 r1  7
+    05  
+    06  jmp         8
+4   07  addr r3 r0 r0
+4   08  addi r2  1 r2
+    09  j_gt r2 r1 12
+    10  
+    11  jmp         3
+5   12  addi r3  1 r3
+    13  j_gt r3 r1 16
+    14  
+    15  jmp         2
+6   16  end
+1   17  addi r1  2 r1
+    18  mulr r1 r1 r1
+    19  mulr ip r1 r1
+    20  muli r1 11 r1
+    21  addi r5  1 r5
+    22  mulr r5 ip r5
+    23  addi r5  2 r5
+    24  addr r1 r5 r1
+    25  addr ip r0 ip  // complex jmp
+2   26  jmp         1
+2   27  setr ip  _ r5
+2   28  mulr r5 ip r5
+2   29  addr ip r5 r5
+2   30  mulr ip r5 r5
+2   31  muli r5 14 r5
+2   32  mulr r5 ip r5
+2   33  addr r1 r5 r1
+2   34  seti  0  _ r0
+2   35  jmp         1
