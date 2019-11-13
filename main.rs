@@ -1,12 +1,49 @@
 // elf code stuff
-use std::convert::TryInto;
-
 pub struct Program {
 
 }
 
-type Reg = u8;
-type Imm = usize;
+#[derive(Debug)]
+pub enum Reg {
+    Ip,
+    Reg(u8)
+}
+
+impl std::fmt::Display for Reg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Reg::Ip => write!(f, "ip"),
+            Reg::Reg(r) => write!(f, "r{}", r)
+        }
+    }
+}
+
+impl Reg {
+    pub fn from_str(s: &str, ip_idx: u8) -> Reg {
+        let r = s.parse().unwrap();
+        if r == ip_idx {
+            Reg::Ip
+        } else {
+            Reg::Reg(r)
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Imm(usize);
+
+impl std::fmt::Display for Imm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:2}", self.0)
+    }
+}
+
+
+impl Imm {
+    pub fn from_str(s: &str) -> Self {
+        Self(s.parse().unwrap())
+    }
+}
 
 #[derive(Debug)]
 pub struct Instruction {
@@ -15,21 +52,20 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    fn from_str(s: &str) -> Instruction {
+    fn from_str(s: &str, ip_reg: u8) -> Instruction {
         let parts = s.split(" ").collect::<Vec<_>>();
-        let a: usize = parts[1].parse().unwrap();
-        let b: usize = parts[2].parse().unwrap();
-        let c = parts[3].parse().unwrap();
+        let a = parts[1];
+        let b = parts[2];
+        let c = Reg::from_str(parts[3], ip_reg);
         let opcode = match parts[0] {
-            "addr"  => OpCode::Addr(a.try_into().unwrap(), b.try_into().unwrap()),
-            "addi"  => OpCode::Addi(a.try_into().unwrap(), b.try_into().unwrap()),
-            "mulr"  => OpCode::Mulr(a.try_into().unwrap(), b.try_into().unwrap()),
-            "muli"  => OpCode::Muli(a.try_into().unwrap(), b.try_into().unwrap()),
-            "setr"  => OpCode::Setr(a.try_into().unwrap()),
-            "seti"  => OpCode::Seti(a.try_into().unwrap()),
-            "gtrr"  => OpCode::Gtrr(a.try_into().unwrap(), b.try_into().unwrap()),
-            "eqrr"  => OpCode::Eqrr(a.try_into().unwrap(), b.try_into().unwrap()),
-            
+            "addr"  => OpCode::Addr(Reg::from_str(a, ip_reg), Reg::from_str(b, ip_reg)),
+            "addi"  => OpCode::Addi(Reg::from_str(a, ip_reg), Imm::from_str(b)),
+            "mulr"  => OpCode::Mulr(Reg::from_str(a, ip_reg), Reg::from_str(b, ip_reg)),
+            "muli"  => OpCode::Muli(Reg::from_str(a, ip_reg), Imm::from_str(b)),
+            "setr"  => OpCode::Setr(Reg::from_str(a, ip_reg)),
+            "seti"  => OpCode::Seti(Imm::from_str(a)),
+            "gtrr"  => OpCode::Gtrr(Reg::from_str(a, ip_reg), Reg::from_str(b, ip_reg)),
+            "eqrr"  => OpCode::Eqrr(Reg::from_str(a, ip_reg), Reg::from_str(b, ip_reg)),
             _ => unimplemented!()
         };
         Instruction {
@@ -40,16 +76,16 @@ impl Instruction {
 
     fn print(&self) -> String {
         let op_str = match &self.opcode {
-            OpCode::Addr(a, b) => format!("addr r{} r{}", a, b),
-            OpCode::Addi(a, b) => format!("addi r{} {:2}", a, b),
-            OpCode::Mulr(a, b) => format!("mulr r{} r{}", a, b),
-            OpCode::Muli(a, b) => format!("muli r{} {:2}", a, b),
-            OpCode::Setr(a) => format!("setr r{}   ", a),
-            OpCode::Seti(a) => format!("seti {:2}   ", a),
-            OpCode::Gtrr(a, b) => format!("gtrr r{} r{}", a, b),
-            OpCode::Eqrr(a, b) => format!("eqrr r{} r{}", a, b),
+            OpCode::Addr(a, b) => format!("addr {} {}", a, b),
+            OpCode::Addi(a, b) => format!("addi {} {}", a, b),
+            OpCode::Mulr(a, b) => format!("mulr {} {}", a, b),
+            OpCode::Muli(a, b) => format!("muli {} {}", a, b),
+            OpCode::Setr(a) => format!("setr {}   ", a),
+            OpCode::Seti(a) => format!("seti {}   ", a),
+            OpCode::Gtrr(a, b) => format!("gtrr {} {}", a, b),
+            OpCode::Eqrr(a, b) => format!("eqrr {} {}", a, b),
         };
-        format!("{} r{}", op_str, self.target)
+        format!("{} {}", op_str, self.target)
     }
 }
 
@@ -75,8 +111,8 @@ pub enum OpCode {
 
 fn main() {
     let input = std::fs::read_to_string("00_orig.txt").unwrap();
-    let ip_reg: usize = input.lines().next().unwrap().trim_start_matches("#ip ").parse().unwrap();
-    let insts: Vec<_> = input.lines().skip(1).map(|l| Instruction::from_str(l)).collect();
+    let ip_reg: u8 = input.lines().next().unwrap().trim_start_matches("#ip ").parse().unwrap();
+    let insts: Vec<_> = input.lines().skip(1).map(|l| Instruction::from_str(l, ip_reg)).collect();
     for (idx, i) in insts.iter().enumerate() {
         println!("{:02}  {}", idx, i.print());
     }
