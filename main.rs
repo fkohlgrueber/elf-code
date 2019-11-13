@@ -12,8 +12,8 @@ pub enum Reg {
 impl std::fmt::Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Reg::Ip => write!(f, "ip"),
-            Reg::Reg(r) => write!(f, "r{}", r)
+            Reg::Ip => write!(f, " ip"),
+            Reg::Reg(r) => write!(f, " r{}", r)
         }
     }
 }
@@ -34,7 +34,7 @@ pub struct Imm(usize);
 
 impl std::fmt::Display for Imm {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:2}", self.0)
+        write!(f, "{:3}", self.0)
     }
 }
 
@@ -80,12 +80,19 @@ impl Instruction {
             OpCode::Addi(a, b) => format!("addi {} {}", a, b),
             OpCode::Mulr(a, b) => format!("mulr {} {}", a, b),
             OpCode::Muli(a, b) => format!("muli {} {}", a, b),
-            OpCode::Setr(a) => format!("setr {}   ", a),
-            OpCode::Seti(a) => format!("seti {}   ", a),
+            OpCode::Setr(a) => format!("setr {}    ", a),
+            OpCode::Seti(a) => format!("seti {}    ", a),
             OpCode::Gtrr(a, b) => format!("gtrr {} {}", a, b),
             OpCode::Eqrr(a, b) => format!("eqrr {} {}", a, b),
         };
         format!("{} {}", op_str, self.target)
+    }
+
+    fn is_jump(&self) -> bool {
+        match self.target {
+            Reg::Ip => true,
+            _ => false
+        }
     }
 }
 
@@ -117,6 +124,7 @@ fn main() {
     for (idx, i) in insts.iter().enumerate() {
         println!("{:02}  {}", idx, i.print());
     }
+    analyze_jmp_targets(insts);
 }
 
 fn inline_ip(insts: Vec<Instruction>) -> Vec<Instruction>{
@@ -124,9 +132,77 @@ fn inline_ip(insts: Vec<Instruction>) -> Vec<Instruction>{
         |(idx, mut inst)| {
             inst.opcode = match inst.opcode {
                 OpCode::Addi(Reg::Ip, i) => OpCode::Seti(Imm(i.0+idx)),
+                OpCode::Addr(Reg::Ip, Reg::Ip) => OpCode::Seti(Imm(idx+idx)),
+                OpCode::Addr(Reg::Ip, r) => OpCode::Addi(r, Imm(idx)),
+                OpCode::Addr(r, Reg::Ip) => OpCode::Addi(r, Imm(idx)),
+                OpCode::Mulr(Reg::Ip, Reg::Ip) => OpCode::Seti(Imm(idx*idx)),
+                OpCode::Muli(Reg::Ip, i) => OpCode::Seti(Imm(i.0*idx)),
+                OpCode::Mulr(Reg::Ip, r) => OpCode::Muli(r, Imm(idx)),
+                OpCode::Mulr(r, Reg::Ip) => OpCode::Muli(r, Imm(idx)),
+                OpCode::Setr(Reg::Ip) => OpCode::Seti(Imm(idx)),
                 op => op
             };
             inst
         }
     ).collect()
+}
+
+fn analyze_jmp_targets(insts: Vec<Instruction>) {
+    let mut queue = vec!();
+    let mut targets: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    queue.push(0);
+    'outer: while let Some(mut idx) = queue.pop() {
+        if idx >= insts.len() {
+            idx = usize::max_value();
+        }
+        if targets.contains(&idx) {
+            continue;
+        }
+        targets.insert(idx);
+        let mut regs = [RegStatus::Any; 6];
+        while idx < insts.len() {
+            let inst = &insts[idx];
+            match inst.target {
+                Reg::Ip => {
+                    // jump
+                    match &inst.opcode {
+                        OpCode::Seti(i) => queue.push(i.0+1),
+                        OpCode::Addi(r, i) => {
+                            let reg = if let Reg::Reg(n) = r { n } else { panic!()};
+                            match regs[*reg as usize] {
+                                RegStatus::Any => {
+                                    for index in i.0+1..=insts.len() {
+                                        queue.push(index);
+                                    }
+                                }
+                                RegStatus::Bin => {
+                                    queue.push(i.0+1);
+                                    queue.push(i.0+2);
+                                }
+                            }
+                        },
+                        _ => unimplemented!()
+                    }
+                    break;
+                },
+                Reg::Reg(n) => {
+                    // no jump
+                    regs[n as usize] = match inst.opcode {
+                        OpCode::Gtrr(_, _) | OpCode::Eqrr(_, _) => RegStatus::Bin,
+                        _ => RegStatus::Any
+                    };
+                }
+            }
+            idx += 1;
+        }
+    }
+    let mut sorted = targets.iter().collect::<Vec<_>>();
+    sorted.sort();
+    println!("{:?}", sorted);
+}
+
+#[derive(Clone, Copy)]
+pub enum RegStatus {
+    Any,
+    Bin
 }
