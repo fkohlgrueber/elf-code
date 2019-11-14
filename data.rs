@@ -115,21 +115,21 @@ impl Instruction<Reg, Reg> {
     pub fn pretty_print(&self) -> String {
         let rhs = match self.opcode {
             OpCode::Addr(a, b) => format!("r{} + r{}", a.0, b.0),
-            OpCode::Addi(a, b) => format!("r{} + {}", a.0, b.0),
+            OpCode::Addi(a, b) => format!("r{} + {} (0x{:x})", a.0, b.0, b.0),
             OpCode::Mulr(a, b) => format!("r{} * r{}", a.0, b.0),
-            OpCode::Muli(a, b) => format!("r{} * {}", a.0, b.0),
+            OpCode::Muli(a, b) => format!("r{} * {} (0x{:x})", a.0, b.0, b.0),
             OpCode::Setr(a) => format!("r{}", a.0),
-            OpCode::Seti(a) => format!("{}", a.0),
-            OpCode::Gtir(a, b) => format!("{} > r{}", a.0, b.0),
-            OpCode::Gtri(a, b) => format!("r{} > {}", a.0, b.0),
+            OpCode::Seti(a) => format!("{} (0x{:x})", a.0, a.0),
+            OpCode::Gtir(a, b) => format!("{} (0x{:x}) > r{}", a.0, a.0, b.0),
+            OpCode::Gtri(a, b) => format!("r{} > {} (0x{:x})", a.0, b.0, b.0),
             OpCode::Gtrr(a, b) => format!("r{} > r{}", a.0, b.0),
-            OpCode::Eqir(a, b) => format!("{} == r{}", a.0, b.0),
-            OpCode::Eqri(a, b) => format!("r{} == {}", a.0, b.0),
+            OpCode::Eqir(a, b) => format!("{} (0x{:x}) == r{}", a.0, a.0, b.0),
+            OpCode::Eqri(a, b) => format!("r{} == {} (0x{:x})", a.0, b.0, b.0),
             OpCode::Eqrr(a, b) => format!("r{} == r{}", a.0, b.0),
             OpCode::Banr(a, b) => format!("r{} & r{}", a.0, b.0),
-            OpCode::Bani(a, b) => format!("r{} & {}", a.0, b.0),
+            OpCode::Bani(a, b) => format!("r{} & {} (0x{:x})", a.0, b.0, b.0),
             OpCode::Borr(a, b) => format!("r{} | r{}", a.0, b.0),
-            OpCode::Bori(a, b) => format!("r{} | {}", a.0, b.0),
+            OpCode::Bori(a, b) => format!("r{} | {} (0x{:x})", a.0, b.0, b.0),
         };
         format!("{} = {}", self.target, rhs)
     }
@@ -559,7 +559,7 @@ pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
 }
 
 fn main() {
-    let input = std::fs::read_to_string("input21.txt").unwrap();
+    let input = std::fs::read_to_string("00_orig.txt").unwrap();
     let program = Program::from_str(&input);
     println!("{}", program);
     let program_ip_inlined = program.inline_ip_lhs();
