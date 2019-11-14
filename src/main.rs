@@ -559,7 +559,7 @@ pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
 }
 
 fn main() {
-    let input = std::fs::read_to_string("00_orig.txt").unwrap();
+    let input = std::fs::read_to_string("input19.txt").unwrap();
     let program = Program::from_str(&input);
     println!("{}", program);
     let program_ip_inlined = program.inline_ip_lhs();
