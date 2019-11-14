@@ -107,6 +107,26 @@ where TR: Display {
     }
 }
 
+impl Instruction<Reg, Reg> {
+    pub fn pretty_print(&self) -> String {
+        let rhs = match self.opcode {
+            OpCode::Addr(a, b) => format!("r{} + r{}", a.0, b.0),
+            OpCode::Addi(a, b) => format!("r{} + {}", a.0, b.0),
+            OpCode::Mulr(a, b) => format!("r{} * r{}", a.0, b.0),
+            OpCode::Muli(a, b) => format!("r{} * {}", a.0, b.0),
+            OpCode::Setr(a) => format!("r{}", a.0),
+            OpCode::Seti(a) => format!("{}", a.0),
+            OpCode::Gtir(a, b) => format!("{} > r{}", a.0, b.0),
+            OpCode::Gtri(a, b) => format!("r{} > {}", a.0, b.0),
+            OpCode::Gtrr(a, b) => format!("r{} > r{}", a.0, b.0),
+            OpCode::Eqir(a, b) => format!("{} == r{}", a.0, b.0),
+            OpCode::Eqri(a, b) => format!("r{} == {}", a.0, b.0),
+            OpCode::Eqrr(a, b) => format!("r{} == r{}", a.0, b.0),
+        };
+        format!("{} = {}", self.target, rhs)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum OpCode<R> 
 where R: Display
@@ -478,7 +498,7 @@ pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
     let end = graph.add_node("End".to_string());
 
     let nodes = program.patches.iter().map(|(k, patch)| {
-        let s: Vec<String> = patch.insts.iter().map(|x|format!("{}", x)).collect();
+        let s: Vec<String> = patch.insts.iter().map(|x| x.pretty_print()).collect();
         let node = graph.add_node(s.join("\n"));
         (k, node)
     }).collect::<std::collections::HashMap<_, _>>();
