@@ -435,6 +435,51 @@ impl std::fmt::Display for PatchProgram {
     }
 }
 
+
+use petgraph::prelude::*;
+pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
+    let mut graph = Graph::new();
+
+    let start = graph.add_node("Start".to_string());
+    let end = graph.add_node("End".to_string());
+
+    let nodes = program.patches.iter().map(|(k, patch)| {
+        let s: Vec<String> = patch.insts.iter().map(|x|format!("{}", x)).collect();
+        let node = graph.add_node(s.join("\n"));
+        (k, node)
+    }).collect::<std::collections::HashMap<_, _>>();
+    
+    // add edge to start node
+    graph.add_edge(start, nodes[&program.start], "".to_string());
+
+
+    for (k, patch) in program.patches.iter() {
+        /*for t in patch.jmp.get_targets() {
+            graph.add_edge(nodes[&k], *nodes.get(t).unwrap_or(&end), "");
+        }*/
+        match &patch.jmp {
+            Jmp::Static(n) => {
+                graph.add_edge(nodes[&k], *nodes.get(&n).unwrap_or(&end), "".to_string());
+            },
+            Jmp::Cond(r, a, b) => {
+                let node = graph.add_node(format!("< {} >", r));
+                graph.add_edge(nodes[&k], node, "".to_string());
+                graph.add_edge(node, *nodes.get(&a).unwrap_or(&end), "true".to_string());
+                graph.add_edge(node, *nodes.get(&b).unwrap_or(&end), "false".to_string());
+            },
+            Jmp::Vec(r, v) => {
+                let node = graph.add_node(format!("< {} >", r));
+                graph.add_edge(nodes[&k], node, "".to_string());
+                v.iter().enumerate().for_each(|(idx, t)| {
+                    graph.add_edge(node, *nodes.get(&t).unwrap_or(&end), format!("{}", idx));
+                });
+            },
+        };
+    }
+
+    graph
+}
+
 fn main() {
     let input = std::fs::read_to_string("00_orig.txt").unwrap();
     let program = Program::from_str(&input);
@@ -447,4 +492,7 @@ fn main() {
     println!("{}", patch_program);
     patch_program.remove_forwarding_patches();
     println!("{}", patch_program);
+    let graph = to_graph(&patch_program);
+    use petgraph::dot::*;
+    std::fs::write("graph.dot", format!("{}", Dot::with_config(&graph, &[]))).unwrap();
 }
