@@ -17,7 +17,7 @@ impl Imm {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reg(u8);
 
 impl std::fmt::Display for Reg {
@@ -230,10 +230,221 @@ where TR: Display {
 
 
 
+#[derive(Debug, PartialEq)]
+pub enum Jmp {
+    Static(usize),
+    Cond(Reg, usize, usize),  // register, jmp if true, jmp if false
+    Vec(Reg, Vec<usize>),
+}
+
+impl Jmp {
+    pub fn get_targets_mut(&mut self) -> Vec<&mut usize> {
+        match self {
+            Jmp::Static(n) => vec!(n),
+            Jmp::Cond(_, a, b) => vec!(a, b),
+            Jmp::Vec(_, v) => v.iter_mut().collect()
+        }
+    }
+
+    pub fn get_targets(&self) -> Vec<&usize> {
+        match self {
+            Jmp::Static(n) => vec!(n),
+            Jmp::Cond(_, a, b) => vec!(a, b),
+            Jmp::Vec(_, v) => v.iter().collect()
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum RegStatus {
+    Any,
+    Bin
+}
+
+pub struct Patch {
+    pub insts: Vec<Instruction<Reg, Reg>>,
+    pub jmp: Jmp,
+}
+
+pub struct PatchProgram {
+    start: usize,
+    patches: std::collections::HashMap<usize, Patch>
+}
+
+impl PatchProgram {
+    pub fn from_program(program: Program<Reg, RegOrIp>) -> Self {
+        let insts = program.insts;
+        let mut queue = vec!();
+        let mut targets: std::collections::HashMap<usize, Patch> = std::collections::HashMap::new();
+        queue.push(0);
+        'outer: while let Some(mut idx) = queue.pop() {
+            if idx >= insts.len() {
+                idx = usize::max_value();
+            }
+            if targets.contains_key(&idx) {
+                continue;
+            }
+            let mut regs = [RegStatus::Any; 6];
+            let idx_orig = idx;
+            let mut tmp_instructions = vec!();
+            while idx < insts.len() {
+                let inst = &insts[idx];
+                match inst.target {
+                    RegOrIp::Ip => {
+                        // jump
+                        match &inst.opcode {
+                            OpCode::Seti(i) => {
+                                queue.push(i.0+1);
+                                targets.insert(idx_orig, Patch{
+                                    insts: tmp_instructions,
+                                    jmp: Jmp::Static(i.0+1)
+                                });
+                            },
+                            OpCode::Addi(Reg(r), i) => {
+                                match regs[*r as usize] {
+                                    RegStatus::Any => {
+                                        for index in i.0+1..=insts.len() {
+                                            queue.push(index);
+                                        }
+                                        targets.insert(idx_orig, Patch{
+                                            insts: tmp_instructions,
+                                            jmp: Jmp::Vec(Reg(*r), (i.0+1..=insts.len()).collect())
+                                        });
+                                    }
+                                    RegStatus::Bin => {
+                                        queue.push(i.0+1);
+                                        queue.push(i.0+2);
+                                        targets.insert(idx_orig, Patch{
+                                            insts: tmp_instructions,
+                                            jmp: Jmp::Cond(Reg(*r), i.0+2, i.0+1)
+                                        });
+                                    }
+                                }
+                            },
+                            _ => unimplemented!()
+                        }
+                        break;
+                    },
+                    RegOrIp::Reg(Reg(n)) => {
+                        // no jump
+                        regs[n as usize] = match inst.opcode {
+                            OpCode::Gtir(_, _) | 
+                            OpCode::Gtri(_, _) | 
+                            OpCode::Gtrr(_, _) | 
+                            OpCode::Eqir(_, _) | 
+                            OpCode::Eqri(_, _) | 
+                            OpCode::Eqrr(_, _) => RegStatus::Bin,
+                            _ => RegStatus::Any
+                        };
+                        tmp_instructions.push(Instruction {
+                            opcode: inst.opcode.clone(),
+                            target: Reg(n)
+                        });
+                    }
+                }
+                idx += 1;
+            }
+        }
+    
+        Self {
+            start: 0,
+            patches: targets
+        }
+    }
+
+    pub fn deduplicate_patches(&mut self) {
+        // remove duplications in patches
+        let mut target_ids: Vec<_> = self.patches.keys().cloned().collect();
+        target_ids.sort();
+        for (id, next_id) in target_ids.iter().zip(target_ids.iter().skip(1)) {
+            let this = &self.patches[id];
+            let next = &self.patches[next_id];
+            if id+this.insts.len() == next_id+next.insts.len() && this.jmp == next.jmp {
+                let new_elmt = Patch {
+                    insts: this.insts.iter().cloned().take(next_id-id).collect(),
+                    jmp: Jmp::Static(*next_id)
+                };
+                *self.patches.get_mut(id).unwrap() = new_elmt;
+            }
+        }
+
+    }
+
+    pub fn remove_forwarding_patches(&mut self) {
+        // remove patches that are only forwarding to other patches
+        loop {
+            // find patches that can be skipped (Jmp::Static && no instructions)
+            let mut replace_elmts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+            for k in self.patches.keys() {
+                if let Patch { insts: v, jmp: Jmp::Static(n) } = &self.patches[k] {
+                    if v.is_empty() {
+                        replace_elmts.insert(*k, *n);
+                    }
+                }
+            }
+            
+            // update target pointers in all patches
+            for (_k, v) in self.patches.iter_mut() {
+                for t in v.jmp.get_targets_mut() {
+                    if let Some(e) = replace_elmts.get(t) {
+                        *t = *e;
+                    }
+                }
+            }
+            
+            // update start pointer
+            if let Some(e) = replace_elmts.get(&self.start) {
+                self.start = *e;
+            }
+    
+            // check which patches are used
+            let mut used_elmts = std::collections::HashSet::new();
+            used_elmts.insert(self.start);
+            for (_, v) in self.patches.iter() {
+                for e in v.jmp.get_targets() {
+                    used_elmts.insert(*e);
+                }
+            }
+            
+            // remove unused patches
+            self.patches.retain(|k, _v| used_elmts.contains(k));
+    
+            // repeat the above until convergence
+            if replace_elmts.is_empty() {
+                break;
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for PatchProgram {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut target_ids: Vec<_> = self.patches.keys().cloned().collect();
+        target_ids.sort();
+        writeln!(f, "PatchProgram ({} patches, start at {}) {{", target_ids.len(), self.start)?;
+        for key in &target_ids {
+            writeln!(f, "  Patch {} {{", key)?;
+            for inst in &self.patches[&key].insts {
+                writeln!(f, "    {}", inst)?;
+            }
+            writeln!(f, "    Jmp: {:?}", self.patches[&key].jmp)?;
+            writeln!(f, "  }}")?;
+        }
+        writeln!(f, "}}")?;
+        Ok(())
+    }
+}
+
 fn main() {
     let input = std::fs::read_to_string("00_orig.txt").unwrap();
     let program = Program::from_str(&input);
     println!("{}", program);
     let program_ip_inlined = program.inline_ip_lhs();
     println!("{}", program_ip_inlined);
+    let mut patch_program = PatchProgram::from_program(program_ip_inlined);
+    println!("{}", patch_program);
+    patch_program.deduplicate_patches();
+    println!("{}", patch_program);
+    patch_program.remove_forwarding_patches();
+    println!("{}", patch_program);
 }
