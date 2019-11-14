@@ -88,7 +88,11 @@ impl Instruction<RegOrIp, RegOrIp> {
             "eqir"  => OpCode::Eqir(Imm::from_str(a), RegOrIp::from_str(b, ip_reg)),
             "eqri"  => OpCode::Eqri(RegOrIp::from_str(a, ip_reg), Imm::from_str(a)),
             "eqrr"  => OpCode::Eqrr(RegOrIp::from_str(a, ip_reg), RegOrIp::from_str(b, ip_reg)),
-            _ => unimplemented!()
+            "banr"  => OpCode::Banr(RegOrIp::from_str(a, ip_reg), RegOrIp::from_str(b, ip_reg)),
+            "bani"  => OpCode::Bani(RegOrIp::from_str(a, ip_reg), Imm::from_str(b)),
+            "borr"  => OpCode::Borr(RegOrIp::from_str(a, ip_reg), RegOrIp::from_str(b, ip_reg)),
+            "bori"  => OpCode::Bori(RegOrIp::from_str(a, ip_reg), Imm::from_str(b)),
+            _ => panic!("Invalid input")
         };
         Instruction {
             opcode,
@@ -122,6 +126,10 @@ impl Instruction<Reg, Reg> {
             OpCode::Eqir(a, b) => format!("{} == r{}", a.0, b.0),
             OpCode::Eqri(a, b) => format!("r{} == {}", a.0, b.0),
             OpCode::Eqrr(a, b) => format!("r{} == r{}", a.0, b.0),
+            OpCode::Banr(a, b) => format!("r{} & r{}", a.0, b.0),
+            OpCode::Bani(a, b) => format!("r{} & {}", a.0, b.0),
+            OpCode::Borr(a, b) => format!("r{} | r{}", a.0, b.0),
+            OpCode::Bori(a, b) => format!("r{} | {}", a.0, b.0),
         };
         format!("{} = {}", self.target, rhs)
     }
@@ -135,10 +143,10 @@ where R: Display
     Addi(R, Imm),
     Mulr(R, R),
     Muli(R, Imm),
-    //Banr(R, R),
-    //Bani(R, Imm),
-    //Borr(R, R),
-    //Bori(R, Imm),
+    Banr(R, R),
+    Bani(R, Imm),
+    Borr(R, R),
+    Bori(R, Imm),
     Setr(R),
     Seti(Imm),
     Gtir(Imm, R),
@@ -166,6 +174,10 @@ where R: Display
             OpCode::Eqir(a, b) => write!(f, "eqir {} {}", a, b),
             OpCode::Eqri(a, b) => write!(f, "eqri {} {}", a, b),
             OpCode::Eqrr(a, b) => write!(f, "eqrr {} {}", a, b),
+            OpCode::Banr(a, b) => write!(f, "banr {} {}", a, b),
+            OpCode::Bani(a, b) => write!(f, "bani {} {}", a, b),
+            OpCode::Borr(a, b) => write!(f, "borr {} {}", a, b),
+            OpCode::Bori(a, b) => write!(f, "bori {} {}", a, b),
         }
     }
 }
@@ -204,6 +216,18 @@ impl OpCode<RegOrIp> {
             OpCode::Eqir(i, RegOrIp::Reg(r)) => OpCode::Eqir(i, r),
             OpCode::Eqri(RegOrIp::Ip, i) => OpCode::Seti(Imm((ip_value == i.0) as usize)),
             OpCode::Eqri(RegOrIp::Reg(r), i) => OpCode::Eqri(r, i),
+            OpCode::Bani(RegOrIp::Ip, i) => OpCode::Seti(Imm(i.0 & ip_value)),
+            OpCode::Bani(RegOrIp::Reg(r), i) => OpCode::Bani(r, i),
+            OpCode::Banr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(ip_value & ip_value)),
+            OpCode::Banr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Bani(r, Imm(ip_value)),
+            OpCode::Banr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Bani(r, Imm(ip_value)),
+            OpCode::Banr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Banr(ra, rb),
+            OpCode::Bori(RegOrIp::Ip, i) => OpCode::Seti(Imm(i.0 | ip_value)),
+            OpCode::Bori(RegOrIp::Reg(r), i) => OpCode::Bori(r, i),
+            OpCode::Borr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(ip_value | ip_value)),
+            OpCode::Borr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Bori(r, Imm(ip_value)),
+            OpCode::Borr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Bori(r, Imm(ip_value)),
+            OpCode::Borr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Borr(ra, rb),
         }
     }
 }
@@ -535,7 +559,7 @@ pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
 }
 
 fn main() {
-    let input = std::fs::read_to_string("00_orig.txt").unwrap();
+    let input = std::fs::read_to_string("input21.txt").unwrap();
     let program = Program::from_str(&input);
     println!("{}", program);
     let program_ip_inlined = program.inline_ip_lhs();
