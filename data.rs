@@ -82,13 +82,27 @@ impl Instruction<RegOrIp, RegOrIp> {
             "muli"  => OpCode::Muli(RegOrIp::from_str(a, ip_reg), Imm::from_str(b)),
             "setr"  => OpCode::Setr(RegOrIp::from_str(a, ip_reg)),
             "seti"  => OpCode::Seti(Imm::from_str(a)),
+            "gtir"  => OpCode::Gtir(Imm::from_str(a), RegOrIp::from_str(b, ip_reg)),
+            "gtri"  => OpCode::Gtri(RegOrIp::from_str(a, ip_reg), Imm::from_str(a)),
             "gtrr"  => OpCode::Gtrr(RegOrIp::from_str(a, ip_reg), RegOrIp::from_str(b, ip_reg)),
+            "eqir"  => OpCode::Eqir(Imm::from_str(a), RegOrIp::from_str(b, ip_reg)),
+            "eqri"  => OpCode::Eqri(RegOrIp::from_str(a, ip_reg), Imm::from_str(a)),
             "eqrr"  => OpCode::Eqrr(RegOrIp::from_str(a, ip_reg), RegOrIp::from_str(b, ip_reg)),
             _ => unimplemented!()
         };
         Instruction {
             opcode,
             target: c
+        }
+    }
+}
+
+impl<TR> Instruction<RegOrIp, TR>
+where TR: Display {
+    pub fn inline_ip_lhs(self, ip_value: usize) -> Instruction<Reg, TR> {
+        Instruction {
+            opcode: self.opcode.inline_ip_lhs(ip_value),
+            target: self.target
         }
     }
 }
@@ -107,11 +121,11 @@ where R: Display
     //Bori(R, Imm),
     Setr(R),
     Seti(Imm),
-    //Gtir(Imm, R),
-    //Gtri(R, Imm),
+    Gtir(Imm, R),
+    Gtri(R, Imm),
     Gtrr(R, R),
-    //Eqir(Imm, R),
-    //Eqri(R, Imm),
+    Eqir(Imm, R),
+    Eqri(R, Imm),
     Eqrr(R, R),
 }
 
@@ -126,8 +140,50 @@ where R: Display
             OpCode::Muli(a, b) => write!(f, "muli {} {}", a, b),
             OpCode::Setr(a) => write!(f, "setr {}    ", a),
             OpCode::Seti(a) => write!(f, "seti {}    ", a),
+            OpCode::Gtir(a, b) => write!(f, "gtir {} {}", a, b),
+            OpCode::Gtri(a, b) => write!(f, "gtri {} {}", a, b),
             OpCode::Gtrr(a, b) => write!(f, "gtrr {} {}", a, b),
+            OpCode::Eqir(a, b) => write!(f, "eqir {} {}", a, b),
+            OpCode::Eqri(a, b) => write!(f, "eqri {} {}", a, b),
             OpCode::Eqrr(a, b) => write!(f, "eqrr {} {}", a, b),
+        }
+    }
+}
+
+impl OpCode<RegOrIp> {
+    pub fn inline_ip_lhs(self, ip_value: usize) -> OpCode<Reg> {
+        match self {
+            OpCode::Addi(RegOrIp::Ip, i) => OpCode::Seti(Imm(i.0+ip_value)),
+            OpCode::Addi(RegOrIp::Reg(r), i) => OpCode::Addi(r, i),
+            OpCode::Addr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(ip_value+ip_value)),
+            OpCode::Addr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Addi(r, Imm(ip_value)),
+            OpCode::Addr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Addi(r, Imm(ip_value)),
+            OpCode::Addr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Addr(ra, rb),
+            OpCode::Muli(RegOrIp::Ip, i) => OpCode::Seti(Imm(i.0*ip_value)),
+            OpCode::Muli(RegOrIp::Reg(r), i) => OpCode::Muli(r, i),
+            OpCode::Mulr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(ip_value*ip_value)),
+            OpCode::Mulr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Muli(r, Imm(ip_value)),
+            OpCode::Mulr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Muli(r, Imm(ip_value)),
+            OpCode::Mulr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Mulr(ra, rb),
+            OpCode::Setr(RegOrIp::Ip) => OpCode::Seti(Imm(ip_value)),
+            OpCode::Setr(RegOrIp::Reg(r)) => OpCode::Setr(r),
+            OpCode::Seti(i) => OpCode::Seti(i),
+            OpCode::Gtrr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(0)),
+            OpCode::Gtrr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Gtri(r, Imm(ip_value)),
+            OpCode::Gtrr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Gtir(Imm(ip_value), r),
+            OpCode::Gtrr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Gtrr(ra, rb),
+            OpCode::Eqrr(RegOrIp::Ip, RegOrIp::Ip) => OpCode::Seti(Imm(1)),
+            OpCode::Eqrr(RegOrIp::Reg(r), RegOrIp::Ip) => OpCode::Eqri(r, Imm(ip_value)),
+            OpCode::Eqrr(RegOrIp::Ip, RegOrIp::Reg(r)) => OpCode::Eqir(Imm(ip_value), r),
+            OpCode::Eqrr(RegOrIp::Reg(ra), RegOrIp::Reg(rb)) => OpCode::Eqrr(ra, rb),
+            OpCode::Gtir(i, RegOrIp::Ip) => OpCode::Seti(Imm((i.0 > ip_value) as usize)),
+            OpCode::Gtir(i, RegOrIp::Reg(r)) => OpCode::Gtir(i, r),
+            OpCode::Gtri(RegOrIp::Ip, i) => OpCode::Seti(Imm((ip_value > i.0) as usize)),
+            OpCode::Gtri(RegOrIp::Reg(r), i) => OpCode::Gtri(r, i),
+            OpCode::Eqir(i, RegOrIp::Ip) => OpCode::Seti(Imm((i.0 == ip_value) as usize)),
+            OpCode::Eqir(i, RegOrIp::Reg(r)) => OpCode::Eqir(i, r),
+            OpCode::Eqri(RegOrIp::Ip, i) => OpCode::Seti(Imm((ip_value == i.0) as usize)),
+            OpCode::Eqri(RegOrIp::Reg(r), i) => OpCode::Eqri(r, i),
         }
     }
 }
@@ -162,7 +218,15 @@ impl Program<RegOrIp, RegOrIp> {
     }
 }
 
-
+impl<TR> Program<RegOrIp, TR> 
+where TR: Display {
+    pub fn inline_ip_lhs(self) -> Program<Reg, TR> {
+        let insts =  self.insts.into_iter().enumerate().map(|(idx, inst)| inst.inline_ip_lhs(idx)).collect();
+        Program {
+            insts
+        }
+    }
+}
 
 
 
@@ -170,4 +234,6 @@ fn main() {
     let input = std::fs::read_to_string("00_orig.txt").unwrap();
     let program = Program::from_str(&input);
     println!("{}", program);
+    let program_ip_inlined = program.inline_ip_lhs();
+    println!("{}", program_ip_inlined);
 }
