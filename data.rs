@@ -397,23 +397,57 @@ impl PatchProgram {
                 self.start = *e;
             }
     
-            // check which patches are used
-            let mut used_elmts = std::collections::HashSet::new();
-            used_elmts.insert(self.start);
-            for (_, v) in self.patches.iter() {
-                for e in v.jmp.get_targets() {
-                    used_elmts.insert(*e);
-                }
-            }
+            self.remove_unused_patches();
             
-            // remove unused patches
-            self.patches.retain(|k, _v| used_elmts.contains(k));
-    
             // repeat the above until convergence
             if replace_elmts.is_empty() {
                 break;
             }
         }
+    }
+
+    fn remove_unused_patches(&mut self) {
+        // check which patches are used
+        let mut used_elmts = std::collections::HashSet::new();
+        used_elmts.insert(self.start);
+        for (_, v) in self.patches.iter() {
+            for e in v.jmp.get_targets() {
+                used_elmts.insert(*e);
+            }
+        }
+        
+        // remove unused patches
+        self.patches.retain(|k, _v| used_elmts.contains(k));
+    }
+
+    pub fn remove_unreachable_branches(&mut self, mut regs: Vec<RegStatus>) {
+        let mut curr_patch_idx = self.start;
+        loop{ 
+            for inst in &self.patches[&curr_patch_idx].insts {
+                regs[inst.target.0 as usize] = match inst.opcode {
+                    OpCode::Gtir(_, _) | 
+                    OpCode::Gtri(_, _) | 
+                    OpCode::Gtrr(_, _) | 
+                    OpCode::Eqir(_, _) | 
+                    OpCode::Eqri(_, _) | 
+                    OpCode::Eqrr(_, _) => RegStatus::Bin,
+                    _ => RegStatus::Any
+                };
+            }
+            match &self.patches[&curr_patch_idx].jmp {
+                Jmp::Static(n) => curr_patch_idx = *n,
+                Jmp::Cond(_, _, _) => { break; },
+                Jmp::Vec(r, v) => {
+                    // if the register can only contain a binary value and the jump is Jmp::Vec,
+                    // change it to a conditional jump
+                    if let RegStatus::Bin = regs[r.0 as usize] {
+                        self.patches.get_mut(&curr_patch_idx).unwrap().jmp = Jmp::Cond(*r, v[1], v[0]);
+                    }
+                    break;
+                }
+            }
+        }
+        self.remove_unused_patches();
     }
 }
 
@@ -488,6 +522,8 @@ fn main() {
     println!("{}", program_ip_inlined);
     let mut patch_program = PatchProgram::from_program(program_ip_inlined);
     println!("{}", patch_program);
+    patch_program.remove_unreachable_branches(vec![RegStatus::Bin; 6]);
+    println!("{}", patch_program);
     patch_program.deduplicate_patches();
     println!("{}", patch_program);
     patch_program.remove_forwarding_patches();
@@ -495,4 +531,7 @@ fn main() {
     let graph = to_graph(&patch_program);
     use petgraph::dot::*;
     std::fs::write("graph.dot", format!("{}", Dot::with_config(&graph, &[]))).unwrap();
+
+    // restrict register 0 to binary values (0 and 1)
+
 }
