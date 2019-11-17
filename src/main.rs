@@ -1,6 +1,7 @@
 
 
 use std::fmt::Display;
+use std::collections::{HashSet, HashMap};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Imm(usize);
@@ -17,7 +18,7 @@ impl Imm {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Reg(u8);
 
 impl std::fmt::Display for Reg {
@@ -132,6 +133,27 @@ impl Instruction<Reg, Reg> {
             OpCode::Bori(a, b) => format!("r{} | {} (0x{:x})", a.0, b.0, b.0),
         };
         format!("{} = {}", self.target, rhs)
+    }
+
+    pub fn get_used_regs(&self) -> Vec<Reg> {
+        match self.opcode {
+            OpCode::Addr(a, b) => vec!(a, b),
+            OpCode::Addi(a, _b) => vec!(a),
+            OpCode::Mulr(a, b) => vec!(a, b),
+            OpCode::Muli(a, _b) => vec!(a),
+            OpCode::Setr(a) => vec!(a),
+            OpCode::Seti(_a) => vec!(),
+            OpCode::Gtir(_a, b) => vec!(b),
+            OpCode::Gtri(a, _b) => vec!(a),
+            OpCode::Gtrr(a, b) => vec!(a, b),
+            OpCode::Eqir(_a, b) => vec!(b),
+            OpCode::Eqri(a, _b) => vec!(a),
+            OpCode::Eqrr(a, b) => vec!(a, b),
+            OpCode::Banr(a, b) => vec!(a, b),
+            OpCode::Bani(a, _b) => vec!(a),
+            OpCode::Borr(a, b) => vec!(a, b),
+            OpCode::Bori(a, _b) => vec!(a),
+        }
     }
 }
 
@@ -310,16 +332,38 @@ pub struct Patch {
     pub jmp: Jmp,
 }
 
+impl Patch {
+    pub fn get_free_and_modified_vars(&self) -> (HashSet<Reg>, HashSet<Reg>) {
+        let mut free_vars: HashSet<Reg> = HashSet::new();
+        let mut modified_vars: HashSet<Reg> = HashSet::new();
+        for inst in &self.insts {
+            inst.get_used_regs().into_iter().for_each(|r| if !modified_vars.contains(&r) {
+                free_vars.insert(r);
+            });
+            modified_vars.insert(inst.target);
+        }
+
+        // check jmp as well
+        if let Jmp::Cond(r, _, _) | Jmp::Vec(r, _) = &self.jmp {
+            if !modified_vars.contains(r) {
+                free_vars.insert(*r);
+            }
+        }
+
+        (free_vars, modified_vars)
+    }
+}
+
 pub struct PatchProgram {
     start: usize,
-    patches: std::collections::HashMap<usize, Patch>
+    patches: HashMap<usize, Patch>
 }
 
 impl PatchProgram {
     pub fn from_program(program: Program<Reg, RegOrIp>) -> Self {
         let insts = program.insts;
         let mut queue = vec!();
-        let mut targets: std::collections::HashMap<usize, Patch> = std::collections::HashMap::new();
+        let mut targets: HashMap<usize, Patch> = HashMap::new();
         queue.push(0);
         'outer: while let Some(mut idx) = queue.pop() {
             if idx >= insts.len() {
@@ -418,7 +462,7 @@ impl PatchProgram {
         // remove patches that are only forwarding to other patches
         loop {
             // find patches that can be skipped (Jmp::Static && no instructions)
-            let mut replace_elmts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+            let mut replace_elmts: HashMap<usize, usize> = HashMap::new();
             for k in self.patches.keys() {
                 if let Patch { insts: v, jmp: Jmp::Static(n) } = &self.patches[k] {
                     if v.is_empty() {
@@ -452,7 +496,7 @@ impl PatchProgram {
 
     fn remove_unused_patches(&mut self) {
         // check which patches are used
-        let mut used_elmts = std::collections::HashSet::new();
+        let mut used_elmts = HashSet::new();
         used_elmts.insert(self.start);
         for (_, v) in self.patches.iter() {
             for e in v.jmp.get_targets() {
@@ -493,6 +537,49 @@ impl PatchProgram {
         }
         self.remove_unused_patches();
     }
+
+    pub fn get_data_dependencies(&self) -> HashMap<usize, Vec<HashSet<usize>>> {
+        let mut hs: HashMap<usize, Vec<HashSet<usize>>> = HashMap::new();
+        
+        let init_hs = [100].iter().cloned().collect();
+        let init_regs: Vec<HashSet<usize>> = vec!(init_hs; 6);  // fixme: number of registers should be part of the program structure
+        let mut queue = vec!((self.start, init_regs));
+
+        while let Some((curr_patch_idx, regs)) = queue.pop() {
+            // update data dependencies based on `regs`. if the update doesn't cause changes, skip the rest of the loop
+            if let Some(hs_regs) = hs.get_mut(&curr_patch_idx) {
+                let hs_regs_orig = hs_regs.clone();
+                for (hs_reg, reg) in hs_regs.iter_mut().zip(regs.iter()) {
+                    hs_reg.extend(reg);
+                }
+                
+                if &hs_regs_orig == hs_regs {
+                    continue;
+                }
+            } else {
+                hs.insert(curr_patch_idx, regs.clone());
+            }
+
+            // update regs
+            if let Some(p) = self.patches.get(&curr_patch_idx) {
+                let mut regs = hs.get(&curr_patch_idx).unwrap().clone();
+                // for each reg that's modified within the patch, set the corresponding hashmap to the current patch idx
+                p.get_free_and_modified_vars().1.iter().for_each(|r| {
+                    let mut tmp_hs = HashSet::new();
+                    tmp_hs.insert(curr_patch_idx);
+                    regs[r.0 as usize] = tmp_hs;
+                });
+
+                for target in p.jmp.get_targets() {
+                    queue.push((*target, regs.clone()));
+                }
+            }
+
+
+        }
+        
+        hs
+    }
 }
 
 impl std::fmt::Display for PatchProgram {
@@ -513,19 +600,36 @@ impl std::fmt::Display for PatchProgram {
     }
 }
 
-
 use petgraph::prelude::*;
 pub fn to_graph(program: &PatchProgram) -> Graph<String, String>{
     let mut graph = Graph::new();
+
+    let deps = program.get_data_dependencies();
+
+    let used_by = |patch_id, mod_vars: Vec<Reg>| {
+        mod_vars.iter().cloned().map(|mv| {
+            deps.iter().filter_map(|(k, v)| if v[mv.0 as usize].contains(patch_id) { 
+                if program.patches.contains_key(&k) && program.patches[k].get_free_and_modified_vars().0.contains(&mv) {
+                    Some(k)
+                } else { None }
+            } else { None }).collect::<Vec<_>>()
+        }).collect::<Vec<_>>()
+    };
 
     let start = graph.add_node("Start".to_string());
     let end = graph.add_node("End".to_string());
 
     let nodes = program.patches.iter().map(|(k, patch)| {
-        let s: Vec<String> = patch.insts.iter().map(|x| x.pretty_print()).collect();
+        let mut s: Vec<String> = patch.insts.iter().map(|x| x.pretty_print()).collect();
+        let (free_vars, mod_vars) = patch.get_free_and_modified_vars();
+        let sorted = |hs: HashSet<Reg>| { let mut v = hs.into_iter().collect::<Vec<_>>(); v.sort(); v };
+        s.push(format!("Free vars: {:?}\nModified vars: {:?}", sorted(free_vars.clone()), sorted(mod_vars.clone())));
+        s.push(format!("Deps: {:?}", sorted(free_vars).iter().map(|r| &deps[k][r.0 as usize]).collect::<Vec<_>>()));
+        s.push(format!("Used by: {:?}", used_by(k, sorted(mod_vars))));
+        s.push(format!("Key: {}", k));
         let node = graph.add_node(s.join("\n"));
         (k, node)
-    }).collect::<std::collections::HashMap<_, _>>();
+    }).collect::<HashMap<_, _>>();
     
     // add edge to start node
     graph.add_edge(start, nodes[&program.start], "".to_string());
@@ -575,7 +679,4 @@ fn main() {
     let graph = to_graph(&patch_program);
     use petgraph::dot::*;
     std::fs::write("graph.dot", format!("{}", Dot::with_config(&graph, &[]))).unwrap();
-
-    // restrict register 0 to binary values (0 and 1)
-
 }
