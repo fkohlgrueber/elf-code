@@ -1,9 +1,5 @@
-
-
-
 pub mod part_1;
 pub mod part_2;
-pub mod part_3;
 
 use part_1::{
     Program
