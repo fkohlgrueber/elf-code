@@ -68,8 +68,8 @@ impl Patch {
 }
 
 pub struct PatchProgram {
-    start: usize,
-    patches: HashMap<usize, Patch>
+    pub start: usize,
+    pub patches: HashMap<usize, Patch>
 }
 
 impl PatchProgram {
@@ -356,6 +356,25 @@ impl PatchProgram {
         graph
     }
 
+    /*
+    
+    // incomplete
+    
+    pub fn fold_constants(&mut self) {
+        let deps = self.get_data_dependencies();
+        let mut used_by: HashMap<usize, Vec<HashSet<usize>>> = HashMap::new();
+        deps.iter().for_each(|(k, v)| {
+            for (reg_idx, reg_hs) in v.iter().enumerate() {
+                for target in reg_hs {
+                    if self.patches.contains_key(&k) && self.patches[k].get_free_and_modified_vars().0.contains(&target) {
+                    let elmt = used_by.entry(*target).or_insert(vec![HashSet::new(); 6]);
+                    elmt[reg_idx].insert(*k);
+                    }
+                }
+            }
+        });
+        println!("{:#?}", used_by);
+    }*/
 }
 
 impl std::fmt::Display for PatchProgram {

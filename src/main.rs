@@ -1,9 +1,6 @@
-
-
-
 pub mod part_1;
 pub mod part_2;
-pub mod part_3;
+//pub mod part_3;
 
 use part_1::{
     Program
@@ -31,4 +28,5 @@ fn main() {
     let graph = patch_program.to_graph();
     use petgraph::dot::*;
     std::fs::write("graph.dot", format!("{}", Dot::with_config(&graph, &[]))).unwrap();
+    //patch_program.fold_constants();
 }
